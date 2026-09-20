@@ -1,0 +1,19 @@
+{
+  "name": "Moon — Daily Journal",
+  "short_name": "Moon",
+  "description": "A quiet place for how the day felt.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F2EDE6",
+  "theme_color": "#F2EDE6",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/moon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
