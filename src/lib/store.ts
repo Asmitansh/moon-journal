@@ -25,6 +25,10 @@ type JournalState = {
   ) => void;
 
   clearDay: (date: string) => void;
+
+  importEntries: (
+    entries: Record<string, Entry>,
+  ) => void;
 };
 
 function clientStorage() {
@@ -99,6 +103,15 @@ export const useJournalStore =
 
           set({
             entries: next,
+          });
+        },
+
+        importEntries: (importedEntries) => {
+          set({
+            entries: {
+              ...get().entries,
+              ...importedEntries,
+            },
           });
         },
       }),

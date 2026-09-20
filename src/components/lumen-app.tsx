@@ -1,5 +1,5 @@
 import { startOfMonth } from "date-fns";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { MoonInfoDialog } from "@/components/moon-info-dialog";
 import { MonthCalendar } from "@/components/month-calendar";
@@ -15,6 +15,7 @@ import {
   shiftMonth,
   yearCount,
   type CustomMood,
+  type Entry,
   type MoodId,
 } from "@/lib/journal";
 
@@ -151,57 +152,178 @@ function AppearanceIcon({ mode }: { mode: Appearance }) {
 }
 
 /* =========================================================
+   BACKUP HELPERS
+   ========================================================= */
+
+function downloadJson(
+  filename: string,
+  data: unknown,
+) {
+  const json = JSON.stringify(data, null, 2);
+
+  const blob = new Blob([json], {
+    type: "application/json",
+  });
+
+  const url = URL.createObjectURL(blob);
+
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  URL.revokeObjectURL(url);
+}
+
+function isValidEntry(value: unknown): value is Entry {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const entry = value as Record<string, unknown>;
+
+  if (typeof entry.mood !== "string") {
+    return false;
+  }
+
+  if (typeof entry.note !== "string") {
+    return false;
+  }
+
+  if (
+    entry.customMood !== undefined &&
+    entry.customMood !== null
+  ) {
+    if (
+      typeof entry.customMood !== "object" ||
+      entry.customMood === null
+    ) {
+      return false;
+    }
+
+    const customMood =
+      entry.customMood as Record<string, unknown>;
+
+    if (
+      typeof customMood.label !== "string" ||
+      typeof customMood.hint !== "string" ||
+      typeof customMood.emoji !== "string"
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function isValidEntries(
+  value: unknown,
+): value is Record<string, Entry> {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const entries =
+    value as Record<string, unknown>;
+
+  return Object.entries(entries).every(
+    ([date, entry]) =>
+      /^\d{4}-\d{2}-\d{2}$/.test(date) &&
+      isValidEntry(entry),
+  );
+}
+
+/* =========================================================
    MAIN APP
    ========================================================= */
 
 export function LumenApp() {
-  const entries = useJournalStore((state) => state.entries);
-  const hydrated = useJournalStore((state) => state.hydrated);
+  const entries = useJournalStore(
+    (state) => state.entries,
+  );
 
-  const upsert = useJournalStore((state) => state.upsert);
-  const updateNote = useJournalStore((state) => state.updateNote);
-  const clearDay = useJournalStore((state) => state.clearDay);
-  const setHydrated = useJournalStore((state) => state.setHydrated);
+  const hydrated = useJournalStore(
+    (state) => state.hydrated,
+  );
+
+  const upsert = useJournalStore(
+    (state) => state.upsert,
+  );
+
+  const updateNote = useJournalStore(
+    (state) => state.updateNote,
+  );
+
+  const clearDay = useJournalStore(
+    (state) => state.clearDay,
+  );
+
+  const importEntries = useJournalStore(
+    (state) => state.importEntries,
+  );
+
+  const setHydrated = useJournalStore(
+    (state) => state.setHydrated,
+  );
 
   const [today] = useState(() => new Date());
-  const [selected, setSelected] = useState(() => new Date());
 
-  const [viewMonth, setViewMonth] = useState(() =>
-    startOfMonth(new Date()),
-  );
+  const [selected, setSelected] =
+    useState(() => new Date());
+
+  const [viewMonth, setViewMonth] =
+    useState(() =>
+      startOfMonth(new Date()),
+    );
 
   /* =======================================================
      APPEARANCE
      ======================================================= */
 
-  const [appearance, setAppearance] = useState<Appearance>(() => {
-    if (typeof window === "undefined") {
+  const [appearance, setAppearance] =
+    useState<Appearance>(() => {
+      if (typeof window === "undefined") {
+        return "system";
+      }
+
+      const saved =
+        localStorage.getItem(
+          "moon-appearance",
+        );
+
+      if (
+        saved === "light" ||
+        saved === "dark" ||
+        saved === "rain" ||
+        saved === "system"
+      ) {
+        return saved;
+      }
+
       return "system";
-    }
+    });
 
-    const saved = localStorage.getItem("moon-appearance");
-
-    if (
-      saved === "light" ||
-      saved === "dark" ||
-      saved === "rain" ||
-      saved === "system"
-    ) {
-      return saved;
-    }
-
-    return "system";
-  });
-
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] =
+    useState(false);
 
   /* =======================================================
-     PRIVACY / ABOUT DIALOG
+     PRIVACY / ABOUT
      ======================================================= */
 
-  const [infoDialog, setInfoDialog] = useState<
-    "privacy" | "about" | null
-  >(null);
+  const [infoDialog, setInfoDialog] =
+    useState<
+      "privacy" | "about" | null
+    >(null);
+
+  /* =======================================================
+     IMPORT FILE INPUT
+     ======================================================= */
+
+  const importInputRef =
+    useRef<HTMLInputElement | null>(null);
 
   /* =======================================================
      JOURNAL HYDRATION
@@ -209,13 +331,17 @@ export function LumenApp() {
 
   useEffect(() => {
     const unsub =
-      useJournalStore.persist.onFinishHydration(() => {
-        setHydrated(true);
-      });
+      useJournalStore.persist.onFinishHydration(
+        () => {
+          setHydrated(true);
+        },
+      );
 
     hydrateJournalStore();
 
-    if (useJournalStore.persist.hasHydrated()) {
+    if (
+      useJournalStore.persist.hasHydrated()
+    ) {
       setHydrated(true);
     }
 
@@ -227,8 +353,13 @@ export function LumenApp() {
      ======================================================= */
 
   useEffect(() => {
-    const applyTheme = (mode: Appearance) => {
-      let theme: "light" | "dark" | "rain";
+    const applyTheme = (
+      mode: Appearance,
+    ) => {
+      let theme:
+        | "light"
+        | "dark"
+        | "rain";
 
       if (mode === "rain") {
         theme = "rain";
@@ -237,11 +368,12 @@ export function LumenApp() {
       } else if (mode === "light") {
         theme = "light";
       } else {
-        theme = window.matchMedia(
-          "(prefers-color-scheme: dark)",
-        ).matches
-          ? "dark"
-          : "light";
+        theme =
+          window.matchMedia(
+            "(prefers-color-scheme: dark)",
+          ).matches
+            ? "dark"
+            : "light";
       }
 
       document.documentElement.setAttribute(
@@ -266,15 +398,19 @@ export function LumenApp() {
       return;
     }
 
-    const media = window.matchMedia(
-      "(prefers-color-scheme: dark)",
-    );
+    const media =
+      window.matchMedia(
+        "(prefers-color-scheme: dark)",
+      );
 
     const handleChange = () => {
       applyTheme("system");
     };
 
-    media.addEventListener("change", handleChange);
+    media.addEventListener(
+      "change",
+      handleChange,
+    );
 
     return () => {
       media.removeEventListener(
@@ -291,7 +427,10 @@ export function LumenApp() {
   const key = dateKey(selected);
   const entry = entries[key];
 
-  const streak = currentStreak(entries, today);
+  const streak = currentStreak(
+    entries,
+    today,
+  );
 
   const logged = yearCount(
     entries,
@@ -303,7 +442,8 @@ export function LumenApp() {
     viewMonth,
   );
 
-  const visibleEntries = hydrated ? entries : {};
+  const visibleEntries =
+    hydrated ? entries : {};
 
   /* =======================================================
      DATE SELECTION
@@ -316,7 +456,9 @@ export function LumenApp() {
       }
 
       setSelected(date);
-      setViewMonth(startOfMonth(date));
+      setViewMonth(
+        startOfMonth(date),
+      );
     },
     [today],
   );
@@ -330,7 +472,10 @@ export function LumenApp() {
      ======================================================= */
 
   const onMood = useCallback(
-    (mood: MoodId, note: string) => {
+    (
+      mood: MoodId,
+      note: string,
+    ) => {
       upsert(key, {
         mood,
         note,
@@ -344,16 +489,20 @@ export function LumenApp() {
      CUSTOM MOOD
      ======================================================= */
 
-  const onCustomMood = useCallback(
-    (mood: CustomMood, note: string) => {
-      upsert(key, {
-        mood: "custom",
-        note,
-        customMood: mood,
-      });
-    },
-    [key, upsert],
-  );
+  const onCustomMood =
+    useCallback(
+      (
+        mood: CustomMood,
+        note: string,
+      ) => {
+        upsert(key, {
+          mood: "custom",
+          note,
+          customMood: mood,
+        });
+      },
+      [key, upsert],
+    );
 
   /* =======================================================
      NOTE
@@ -365,6 +514,143 @@ export function LumenApp() {
     },
     [key, updateNote],
   );
+
+  /* =======================================================
+     EXPORT ENTIRE JOURNAL
+     ======================================================= */
+
+  const exportJournal =
+    useCallback(() => {
+      if (!hydrated) {
+        window.alert(
+          "Moon is still loading your journal. Please try again in a moment.",
+        );
+        return;
+      }
+
+      const backup = {
+        app: "Moon",
+        version: 1,
+        exportedAt:
+          new Date().toISOString(),
+        entries,
+      };
+
+      const date =
+        new Date()
+          .toISOString()
+          .slice(0, 10);
+
+      downloadJson(
+        `moon-backup-${date}.json`,
+        backup,
+      );
+    }, [entries, hydrated]);
+
+  /* =======================================================
+     IMPORT JOURNAL
+     ======================================================= */
+
+  const handleImportFile =
+    useCallback(
+      async (
+        event: React.ChangeEvent<HTMLInputElement>,
+      ) => {
+        const file =
+          event.target.files?.[0];
+
+        event.target.value = "";
+
+        if (!file) {
+          return;
+        }
+
+        try {
+          const text =
+            await file.text();
+
+          const parsed =
+            JSON.parse(text);
+
+          const importedEntries =
+            parsed?.entries;
+
+          if (
+            !isValidEntries(
+              importedEntries,
+            )
+          ) {
+            window.alert(
+              "This doesn't look like a valid Moon journal backup.",
+            );
+            return;
+          }
+
+          const count =
+            Object.keys(
+              importedEntries,
+            ).length;
+
+          const confirmed =
+            window.confirm(
+              `Import ${count} journal ${
+                count === 1
+                  ? "entry"
+                  : "entries"
+              } into Moon?\n\nExisting entries on the same dates will be replaced by the backup.`,
+            );
+
+          if (!confirmed) {
+            return;
+          }
+
+          importEntries(
+            importedEntries,
+          );
+
+          window.alert(
+            `Successfully imported ${count} ${
+              count === 1
+                ? "entry"
+                : "entries"
+            }.`,
+          );
+        } catch {
+          window.alert(
+            "Moon couldn't read that file. Please choose a valid Moon JSON backup.",
+          );
+        }
+      },
+      [importEntries],
+    );
+
+  /* =======================================================
+     EXPORT TODAY'S ENTRY
+     ======================================================= */
+
+  const exportCurrentEntry =
+    useCallback(() => {
+      if (!entry) {
+        window.alert(
+          "There is no journal entry for this day yet.",
+        );
+        return;
+      }
+
+      const exportData = {
+        app: "Moon",
+        version: 1,
+        date: key,
+        entry,
+        exportedAt:
+          new Date().toISOString(),
+      };
+
+      downloadJson(
+        `moon-entry-${key}.json`,
+        exportData,
+      );
+    }, [entry, key]);
 
   /* =======================================================
      STATS
@@ -493,7 +779,9 @@ export function LumenApp() {
           <button
             type="button"
             onClick={() =>
-              setSettingsOpen((open) => !open)
+              setSettingsOpen(
+                (open) => !open,
+              )
             }
             className="
               moon-settings-button
@@ -511,7 +799,9 @@ export function LumenApp() {
               hover:shadow-md
             "
             aria-label="Open settings"
-            aria-expanded={settingsOpen}
+            aria-expanded={
+              settingsOpen
+            }
           >
             <SettingsIcon />
           </button>
@@ -524,7 +814,7 @@ export function LumenApp() {
                 right-0
                 z-50
                 mt-3
-                w-56
+                w-64
                 overflow-hidden
                 rounded-2xl
                 border
@@ -545,68 +835,195 @@ export function LumenApp() {
                 </p>
               </div>
 
-              {/* APPEARANCE OPTIONS */}
-
               <div className="space-y-1">
-                {appearanceOptions.map((option) => {
-                  const active =
-                    appearance === option.value;
+                {appearanceOptions.map(
+                  (option) => {
+                    const active =
+                      appearance ===
+                      option.value;
 
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => {
-                        setAppearance(option.value);
-                        setSettingsOpen(false);
-                      }}
-                      className={`
-                        moon-settings-option
-                        flex w-full
-                        items-center
-                        gap-3
-                        rounded-xl
-                        px-3 py-2.5
-                        text-left text-sm
-                        transition
-                        ${
-                          active
-                            ? "moon-settings-active"
-                            : ""
+                    return (
+                      <button
+                        key={
+                          option.value
                         }
-                      `}
-                    >
-                      <span
-                        className="
-                          flex size-7
+                        type="button"
+                        onClick={() => {
+                          setAppearance(
+                            option.value,
+                          );
+                          setSettingsOpen(
+                            false,
+                          );
+                        }}
+                        className={`
+                          moon-settings-option
+                          flex w-full
                           items-center
-                          justify-center
-                          rounded-lg
-                        "
+                          gap-3
+                          rounded-xl
+                          px-3 py-2.5
+                          text-left text-sm
+                          transition
+                          ${
+                            active
+                              ? "moon-settings-active"
+                              : ""
+                          }
+                        `}
                       >
-                        <AppearanceIcon
-                          mode={option.value}
-                        />
-                      </span>
-
-                      <span className="flex-1">
-                        {option.label}
-                      </span>
-
-                      {active && (
                         <span
                           className="
-                            size-1.5
-                            rounded-full
-                            bg-accent
+                            flex size-7
+                            items-center
+                            justify-center
+                            rounded-lg
                           "
-                          aria-hidden="true"
-                        />
-                      )}
-                    </button>
-                  );
-                })}
+                        >
+                          <AppearanceIcon
+                            mode={
+                              option.value
+                            }
+                          />
+                        </span>
+
+                        <span className="flex-1">
+                          {option.label}
+                        </span>
+
+                        {active && (
+                          <span
+                            className="
+                              size-1.5
+                              rounded-full
+                              bg-accent
+                            "
+                            aria-hidden="true"
+                          />
+                        )}
+                      </button>
+                    );
+                  },
+                )}
               </div>
+
+              {/* DIVIDER */}
+
+              <div className="my-2 h-px bg-white/20" />
+
+              {/* EXPORT JOURNAL */}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setSettingsOpen(
+                    false,
+                  );
+                  exportJournal();
+                }}
+                className="
+                  moon-settings-option
+                  flex w-full
+                  items-center
+                  gap-3
+                  rounded-xl
+                  px-3 py-2.5
+                  text-left text-sm
+                  transition
+                "
+              >
+                <span
+                  className="
+                    flex size-7
+                    items-center
+                    justify-center
+                    rounded-lg
+                    text-sm
+                  "
+                >
+                  💾
+                </span>
+
+                <span className="flex-1">
+                  Export Journal
+                </span>
+              </button>
+
+              {/* IMPORT JOURNAL */}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setSettingsOpen(
+                    false,
+                  );
+                  importInputRef.current?.click();
+                }}
+                className="
+                  moon-settings-option
+                  flex w-full
+                  items-center
+                  gap-3
+                  rounded-xl
+                  px-3 py-2.5
+                  text-left text-sm
+                  transition
+                "
+              >
+                <span
+                  className="
+                    flex size-7
+                    items-center
+                    justify-center
+                    rounded-lg
+                    text-sm
+                  "
+                >
+                  📥
+                </span>
+
+                <span className="flex-1">
+                  Import Journal
+                </span>
+              </button>
+
+              {/* EXPORT CURRENT ENTRY */}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setSettingsOpen(
+                    false,
+                  );
+                  exportCurrentEntry();
+                }}
+                className="
+                  moon-settings-option
+                  flex w-full
+                  items-center
+                  gap-3
+                  rounded-xl
+                  px-3 py-2.5
+                  text-left text-sm
+                  transition
+                "
+              >
+                <span
+                  className="
+                    flex size-7
+                    items-center
+                    justify-center
+                    rounded-lg
+                    text-sm
+                  "
+                >
+                  📤
+                </span>
+
+                <span className="flex-1">
+                  Export Today's Entry
+                </span>
+              </button>
 
               {/* DIVIDER */}
 
@@ -617,8 +1034,12 @@ export function LumenApp() {
               <button
                 type="button"
                 onClick={() => {
-                  setSettingsOpen(false);
-                  setInfoDialog("privacy");
+                  setSettingsOpen(
+                    false,
+                  );
+                  setInfoDialog(
+                    "privacy",
+                  );
                 }}
                 className="
                   moon-settings-option
@@ -653,8 +1074,12 @@ export function LumenApp() {
               <button
                 type="button"
                 onClick={() => {
-                  setSettingsOpen(false);
-                  setInfoDialog("about");
+                  setSettingsOpen(
+                    false,
+                  );
+                  setInfoDialog(
+                    "about",
+                  );
                 }}
                 className="
                   moon-settings-option
@@ -685,6 +1110,18 @@ export function LumenApp() {
               </button>
             </div>
           )}
+
+          {/* HIDDEN IMPORT INPUT */}
+
+          <input
+            ref={importInputRef}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={
+              handleImportFile
+            }
+          />
         </div>
 
         {/* STATS */}
@@ -735,9 +1172,13 @@ export function LumenApp() {
             entry={entry}
             ready={hydrated}
             onMood={onMood}
-            onCustomMood={onCustomMood}
+            onCustomMood={
+              onCustomMood
+            }
             onNote={onNote}
-            onClear={() => clearDay(key)}
+            onClear={() =>
+              clearDay(key)
+            }
             onToday={goToday}
           />
         </div>
@@ -757,9 +1198,15 @@ export function LumenApp() {
               selected={selected}
               entries={visibleEntries}
               onSelect={selectDate}
-              onShiftMonth={(delta) =>
-                setViewMonth((current) =>
-                  shiftMonth(current, delta),
+              onShiftMonth={(
+                delta,
+              ) =>
+                setViewMonth(
+                  (current) =>
+                    shiftMonth(
+                      current,
+                      delta,
+                    ),
                 )
               }
             />
@@ -767,23 +1214,33 @@ export function LumenApp() {
 
           <div className="moon-glass-wrapper">
             <YearMosaic
-              year={viewMonth.getFullYear()}
+              year={
+                viewMonth.getFullYear()
+              }
               viewMonth={viewMonth}
               entries={visibleEntries}
-              onSelectMonth={(month) =>
-                setViewMonth(startOfMonth(month))
+              onSelectMonth={(
+                month,
+              ) =>
+                setViewMonth(
+                  startOfMonth(
+                    month,
+                  ),
+                )
               }
             />
           </div>
         </div>
       </main>
 
-      {/* PRIVACY POLICY / ABOUT MOON DIALOG */}
+      {/* PRIVACY / ABOUT */}
 
       {infoDialog && (
         <MoonInfoDialog
           type={infoDialog}
-          onClose={() => setInfoDialog(null)}
+          onClose={() =>
+            setInfoDialog(null)
+          }
         />
       )}
     </div>
