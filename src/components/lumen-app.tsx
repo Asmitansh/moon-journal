@@ -2,6 +2,7 @@ import { startOfMonth } from "date-fns";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { MoonInfoDialog } from "@/components/moon-info-dialog";
+import { MoonSplash } from "@/components/moon-splash";
 import { MonthCalendar } from "@/components/month-calendar";
 import { TodayEditor } from "@/components/today-editor";
 import { YearMosaic } from "@/components/year-mosaic";
@@ -241,6 +242,8 @@ function isValidEntries(
    ========================================================= */
 
 export function LumenApp() {
+  const [showSplash, setShowSplash] = useState(true);
+
   const entries = useJournalStore(
     (state) => state.entries,
   );
@@ -705,11 +708,19 @@ export function LumenApp() {
     },
   ];
 
-  /* =======================================================
-     UI
-     ======================================================= */
+ /* =======================================================
+   UI
+   ======================================================= */
 
+if (showSplash) {
   return (
+    <MoonSplash
+      onComplete={() => setShowSplash(false)}
+    />
+  );
+}
+
+return (
     <div className="moon-app relative min-h-dvh pb-10">
       {/* BACKGROUND */}
 

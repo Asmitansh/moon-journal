@@ -1,2 +1,5 @@
 node_modules
 .vercel/
+
+# Moon Android signing key
+moon-release.keystore
