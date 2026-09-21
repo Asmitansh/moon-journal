@@ -1,5 +1,6 @@
 import { startOfMonth } from "date-fns";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { App as CapacitorApp } from "@capacitor/app";
 
 import { MoonInfoDialog } from "@/components/moon-info-dialog";
 import { MoonSplash } from "@/components/moon-splash";
@@ -243,7 +244,7 @@ function isValidEntries(
 
 export function LumenApp() {
   const [showSplash, setShowSplash] = useState(true);
-
+    
   const entries = useJournalStore(
     (state) => state.entries,
   );
@@ -320,6 +321,28 @@ export function LumenApp() {
     useState<
       "privacy" | "about" | null
     >(null);
+    useEffect(() => {
+  const listener = CapacitorApp.addListener(
+    "backButton",
+    () => {
+      if (infoDialog) {
+        setInfoDialog(null);
+        return;
+      }
+
+      if (settingsOpen) {
+        setSettingsOpen(false);
+        return;
+      }
+
+      void CapacitorApp.exitApp();
+    },
+  );
+
+  return () => {
+    void listener.then((handle) => handle.remove());
+  };
+}, [infoDialog, settingsOpen]);
 
   /* =======================================================
      IMPORT FILE INPUT
