@@ -2630,8 +2630,8 @@ html[data-theme="rain"] .moon-dialog-label {
   );
   box-shadow:
     0 0 10px rgba(255, 220, 145, 0.55);
-  animation: moon-splash-progress 1.8s cubic-bezier(0.22, 0.8, 0.25, 1)
-    forwards;
+  animation: moon-splash-progress 4s cubic-bezier(0.22, 0.8, 0.25, 1)
+  forwards;
 }
 
 .moon-splash-loading p {

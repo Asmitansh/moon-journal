@@ -10,11 +10,11 @@ export function MoonSplash({ onComplete }: MoonSplashProps) {
   useEffect(() => {
     const closeTimer = window.setTimeout(() => {
       setClosing(true);
-    }, 1800);
+    }, 4000);
 
     const finishTimer = window.setTimeout(() => {
       onComplete();
-    }, 2300);
+    }, 4500);
 
     return () => {
       window.clearTimeout(closeTimer);
